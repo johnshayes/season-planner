@@ -1,4 +1,4 @@
-const C='season-planner-v2';
+const C='season-planner-v3';
 const ASSETS=['./','./index.html','./manifest.webmanifest','./icon.png'];
 self.addEventListener('install',e=>{
   e.waitUntil(caches.open(C).then(c=>c.addAll(ASSETS)));
