@@ -1,0 +1,10 @@
+{
+  "name": "Season Planner",
+  "short_name": "Planner",
+  "start_url": ".",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f4f5f7",
+  "theme_color": "#2563eb",
+  "icons": [{ "src": "icon.png", "sizes": "180x180", "type": "image/png" }]
+}

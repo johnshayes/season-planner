@@ -1,0 +1,552 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#1e293b">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon.png">
+<title>Season Planner</title>
+<style>
+:root{
+  --bg:#f4f5f7; --card:#fff; --ink:#1e293b; --mut:#64748b; --line:#e2e8f0;
+  --acc:#2563eb; --danger:#dc2626;
+}
+*{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+html,body{margin:0; height:100%;}
+body{font-family:-apple-system,system-ui,sans-serif; background:var(--bg); color:var(--ink);
+  padding-top:env(safe-area-inset-top); overscroll-behavior:none;}
+button{font:inherit;}
+header{display:flex; align-items:center; justify-content:space-between; gap:8px;
+  padding:6px 12px; background:var(--card); border-bottom:1px solid var(--line);}
+header h1{font-size:15px; margin:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+nav{display:flex; gap:4px;}
+nav button{border:0; background:transparent; color:var(--mut); padding:6px 10px; border-radius:8px; font-size:13px; font-weight:600;}
+nav button.on{background:var(--acc); color:#fff;}
+.dot{width:12px; height:12px; border-radius:50%; border:0; padding:0; flex:none; margin-left:auto; cursor:pointer; background:#cbd5e1;}
+.dot.ok{background:#16a34a;}
+.dot.error{background:#dc2626;}
+.dot.busy{background:#d97706; animation:pulse 1s infinite;}
+@keyframes pulse{50%{opacity:.35;}}
+main{height:calc(100dvh - 44px - env(safe-area-inset-top));}
+section{height:100%; overflow:auto; -webkit-overflow-scrolling:touch;}
+
+/* ---- Calendar (fit-to-screen grid) ---- */
+#tab-calendar{overflow:hidden; padding:4px;}
+.cal{display:grid; grid-template-columns:minmax(64px,1.1fr) repeat(7,1fr);
+  gap:2px; height:100%;}
+.calhead{font-size:10px; font-weight:700; color:var(--mut); text-align:center; align-self:end; padding-bottom:1px;}
+.weeklabel{background:var(--card); border:1px solid var(--line); border-radius:6px;
+  padding:2px 3px; overflow:hidden; cursor:pointer; min-width:0;}
+.weeklabel .wdate{font-size:9px; font-weight:700; color:var(--mut);}
+.chips{display:flex; flex-direction:column; gap:1px; overflow:hidden;}
+.chip{font-size:8.5px; line-height:1.25; color:#fff; border-radius:3px; padding:0 3px;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+.day{background:var(--card); border:1px solid var(--line); border-radius:6px;
+  padding:2px 3px; overflow:hidden; cursor:pointer; min-width:0; display:flex; flex-direction:column;}
+.day b{font-size:9.5px; font-weight:600; white-space:nowrap;}
+.day.out{opacity:.28; pointer-events:none;}
+.day.today{border-color:var(--acc); box-shadow:inset 0 0 0 1px var(--acc);}
+.dots{display:flex; flex-wrap:wrap; gap:2px; margin-top:1px;}
+.dots i{width:6px; height:6px; border-radius:50%; flex:none;}
+.calhint{position:fixed; inset:auto 0 10px 0; text-align:center; font-size:11px; color:var(--mut); pointer-events:none;}
+
+/* ---- Weeks planner ---- */
+#tab-weeks{padding:8px;}
+.wp{border-collapse:separate; border-spacing:4px; width:100%;}
+.wp th{font-size:11px; color:var(--mut); text-align:left; padding:0 4px; white-space:nowrap;}
+.wp th.cat{text-align:center;}
+.wp td{background:var(--card); border:1px solid var(--line); border-radius:8px;
+  padding:4px 5px; vertical-align:top; min-width:84px; cursor:pointer;}
+.wp td .chip{font-size:10.5px; margin-bottom:2px; padding:1px 4px;}
+.wp .wklabel{background:transparent; border:0; font-size:11px; font-weight:700; color:var(--mut);
+  white-space:nowrap; padding:4px 2px; min-width:0; cursor:pointer;}
+.wp .add{color:#cbd5e1; font-size:14px; line-height:1;}
+.wp-wrap{overflow-x:auto;}
+
+/* ---- Settings ---- */
+#tab-settings{padding:14px; max-width:560px; margin:0 auto;}
+.box{background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px; margin-bottom:14px;}
+.box h2{font-size:13px; margin:0 0 10px; color:var(--mut); text-transform:uppercase; letter-spacing:.04em;}
+label.f{display:block; font-size:12px; color:var(--mut); margin:8px 0 3px;}
+input[type=text],input[type=date],select{width:100%; padding:9px 10px; border:1px solid var(--line);
+  border-radius:8px; font:inherit; background:#fff; color:var(--ink);}
+.catrow{display:flex; gap:8px; align-items:center; margin-bottom:8px;}
+.catrow input[type=color]{width:36px; height:36px; border:0; padding:0; background:none; flex:none;}
+.catrow button{flex:none;}
+.btn{display:inline-block; border:0; border-radius:9px; padding:10px 14px; font-weight:600;
+  background:var(--acc); color:#fff; cursor:pointer;}
+.btn.ghost{background:#eef2f7; color:var(--ink);}
+.btn.red{background:var(--danger);}
+.btn.sm{padding:6px 10px; font-size:13px;}
+.row{display:flex; gap:8px; flex-wrap:wrap;}
+.note{font-size:12px; color:var(--mut); margin-top:8px; line-height:1.5;}
+
+/* ---- FAB ---- */
+#fab{position:fixed; right:16px; bottom:calc(16px + env(safe-area-inset-bottom)); width:52px; height:52px;
+  border-radius:50%; border:0; background:var(--acc); color:#fff; font-size:26px; line-height:1;
+  box-shadow:0 4px 14px rgba(37,99,235,.4); cursor:pointer; z-index:20;}
+
+/* ---- Modal ---- */
+#modal{position:fixed; inset:0; background:rgba(15,23,42,.45); z-index:30;
+  display:flex; align-items:flex-end; justify-content:center;}
+#modal[hidden]{display:none;}
+#modalCard{background:var(--card); border-radius:16px 16px 0 0; width:100%; max-width:640px;
+  max-height:82dvh; overflow:auto; padding:16px 16px calc(20px + env(safe-area-inset-bottom));}
+@media (min-height:500px) and (min-width:700px){ #modal{align-items:center;} #modalCard{border-radius:16px;} }
+#modalCard h3{margin:0 0 4px; font-size:17px;}
+#modalCard .sub{font-size:12px; color:var(--mut); margin-bottom:12px;}
+.egroup{margin-bottom:12px;}
+.egroup h4{font-size:12px; margin:0 0 5px; display:flex; align-items:center; gap:6px;}
+.egroup h4 i{width:10px; height:10px; border-radius:50%; display:inline-block;}
+.eitem{display:flex; justify-content:space-between; gap:8px; padding:8px 10px; border:1px solid var(--line);
+  border-radius:8px; margin-bottom:5px; font-size:14px; cursor:pointer; background:#fafbfc;}
+.eitem .when{font-size:11px; color:var(--mut); white-space:nowrap; align-self:center;}
+.dayblock{border-top:1px solid var(--line); padding-top:8px; margin-top:8px;}
+.dayblock h5{margin:0 0 5px; font-size:12px; color:var(--mut);}
+.radio{display:flex; gap:14px; margin:6px 0;}
+.radio label{font-size:14px; display:flex; align-items:center; gap:5px;}
+.mrow{display:flex; gap:8px;}
+.mrow>*{flex:1;}
+.mactions{display:flex; gap:8px; margin-top:14px;}
+.mactions .btn{flex:1;}
+.empty{font-size:13px; color:var(--mut); font-style:italic;}
+.close{float:right; border:0; background:#eef2f7; border-radius:50%; width:28px; height:28px; font-size:14px; cursor:pointer;}
+</style>
+</head>
+<body>
+<header>
+  <h1 id="planTitle"></h1>
+  <button id="syncDot" class="dot off" title="Sync off"></button>
+  <nav>
+    <button data-tab="calendar" class="on">Calendar</button>
+    <button data-tab="weeks">Weeks</button>
+    <button data-tab="settings">Set-up</button>
+  </nav>
+</header>
+<main>
+  <section id="tab-calendar"></section>
+  <section id="tab-weeks" hidden></section>
+  <section id="tab-settings" hidden></section>
+</main>
+<button id="fab" title="Add activity">+</button>
+<div id="modal" hidden><div id="modalCard"></div></div>
+
+<script>
+'use strict';
+/* ================= state ================= */
+const LS_KEY='seasonPlanner.v1';
+const PALETTE=['#2563eb','#16a34a','#d97706','#dc2626','#7c3aed','#0891b2','#db2777','#475569'];
+const MONTHS=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const DOW=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+const $=s=>document.querySelector(s);
+const uid=()=>Math.random().toString(36).slice(2,10);
+
+function defaultState(){
+  return {version:1, updated:new Date().toISOString(),
+    settings:{title:'Summer 2026', start:'2026-07-20', end:'2026-09-01'},
+    categories:[
+      {id:uid(),name:'Main',color:PALETTE[0]},
+      {id:uid(),name:'Sport',color:PALETTE[1]},
+      {id:uid(),name:'Learning',color:PALETTE[2]}],
+    entries:[]};
+}
+function load(){
+  try{const raw=localStorage.getItem(LS_KEY);
+    if(raw){const s=JSON.parse(raw); if(s&&s.settings&&Array.isArray(s.categories)&&Array.isArray(s.entries)) return s;}
+  }catch(e){}
+  return defaultState();
+}
+let state=load();
+let tab='calendar';
+function persist(){ state.updated=new Date().toISOString(); localStorage.setItem(LS_KEY,JSON.stringify(state)); }
+function save(){ persist(); render(); schedulePush(); }
+
+/* ================= automatic sync (GitHub Gist) ================= */
+const SYNC_KEY='seasonPlanner.sync';
+const GIST_FILE='season-planner.json';
+let sync=(function(){try{return JSON.parse(localStorage.getItem(SYNC_KEY))||null;}catch(e){return null;}})();
+let pushTimer=null;
+function saveSyncCfg(){ if(sync)localStorage.setItem(SYNC_KEY,JSON.stringify(sync)); else localStorage.removeItem(SYNC_KEY); }
+function ghHeaders(){ return {'Authorization':'Bearer '+sync.token,'Accept':'application/vnd.github+json'}; }
+function setDot(s){ const el=$('#syncDot'); el.className='dot '+s;
+  el.title={off:'Automatic sync is off — set it up in Set-up',ok:'Synced',busy:'Syncing…',error:'Sync error — tap to retry'}[s]; }
+
+async function connectSync(token){
+  const h={'Authorization':'Bearer '+token,'Accept':'application/vnd.github+json'};
+  let r=await fetch('https://api.github.com/gists?per_page=100',{headers:h});
+  if(!r.ok)throw new Error('token rejected (HTTP '+r.status+') — check it was copied fully and has the "gist" scope');
+  const gists=await r.json();
+  const g=gists.find(x=>x.files&&x.files[GIST_FILE]);
+  if(g){ // second phone: adopt the existing shared plan
+    sync={token:token,gistId:g.id}; saveSyncCfg();
+    await pullRemote(true);
+    return 'connected';
+  }
+  // first phone: create the shared store with the current plan
+  r=await fetch('https://api.github.com/gists',{method:'POST',headers:h,
+    body:JSON.stringify({description:'Season Planner shared data',public:false,
+      files:{[GIST_FILE]:{content:JSON.stringify(state,null,2)}}})});
+  if(!r.ok)throw new Error('could not create shared store (HTTP '+r.status+')');
+  const created=await r.json();
+  sync={token:token,gistId:created.id}; saveSyncCfg(); setDot('ok');
+  return 'created';
+}
+async function pullRemote(force){
+  if(!sync)return;
+  setDot('busy');
+  try{
+    const r=await fetch('https://api.github.com/gists/'+sync.gistId,{headers:ghHeaders()});
+    if(!r.ok)throw 0;
+    const g=await r.json();
+    const f=g.files&&g.files[GIST_FILE];
+    if(!f)throw 0;
+    let txt=f.content;
+    if(f.truncated){ txt=await (await fetch(f.raw_url)).text(); }
+    const remote=JSON.parse(txt);
+    if(remote&&remote.settings&&Array.isArray(remote.categories)&&Array.isArray(remote.entries)
+       &&(force||(remote.updated||'')>(state.updated||''))){
+      state=remote;
+      localStorage.setItem(LS_KEY,JSON.stringify(state));
+      render();
+    }
+    setDot('ok');
+  }catch(e){ setDot('error'); }
+}
+function schedulePush(){
+  if(!sync)return;
+  clearTimeout(pushTimer);
+  setDot('busy');
+  pushTimer=setTimeout(pushRemote,1500);
+}
+async function pushRemote(){
+  if(!sync)return;
+  try{
+    const r=await fetch('https://api.github.com/gists/'+sync.gistId,{method:'PATCH',headers:ghHeaders(),
+      body:JSON.stringify({files:{[GIST_FILE]:{content:JSON.stringify(state,null,2)}}})});
+    if(!r.ok)throw 0;
+    setDot('ok');
+  }catch(e){ setDot('error'); }
+}
+async function syncNow(){ await pullRemote(false); pushRemote(); }
+
+/* ================= date helpers ================= */
+function parseD(s){const p=s.split('-').map(Number); return new Date(p[0],p[1]-1,p[2]);}
+function iso(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+function addDays(d,n){const x=new Date(d); x.setDate(x.getDate()+n); return x;}
+function mondayOf(d){const x=new Date(d); x.setDate(x.getDate()-((x.getDay()+6)%7)); return x;}
+function weeks(){ // array of ISO Mondays covering the plan range
+  const out=[]; const s=state.settings;
+  let m=mondayOf(parseD(s.start)); const end=parseD(s.end);
+  while(m<=end && out.length<80){ out.push(iso(m)); m=addDays(m,7); }
+  return out;
+}
+function shortD(ds){const d=parseD(ds); return d.getDate()+' '+MONTHS[d.getMonth()];}
+function weekLabel(m){return shortD(m)+' – '+shortD(iso(addDays(parseD(m),6)));}
+const todayISO=iso(new Date());
+
+/* ================= entry helpers ================= */
+function cat(id){return state.categories.find(c=>c.id===id);}
+function catColor(id){const c=cat(id); return c?c.color:'#94a3b8';}
+function weekEntries(m,catId){return state.entries.filter(e=>e.type==='week'&&e.weekStart===m&&(!catId||e.catId===catId));}
+function rangeEntriesOn(ds){return state.entries.filter(e=>e.type==='range'&&e.start<=ds&&ds<=e.end);}
+function entriesForDate(ds){
+  const m=iso(mondayOf(parseD(ds)));
+  return state.entries.filter(e=>e.type==='week'?e.weekStart===m:(e.start<=ds&&ds<=e.end));
+}
+function rangeEntriesInWeek(m){
+  const wEnd=iso(addDays(parseD(m),6));
+  return state.entries.filter(e=>e.type==='range'&&e.start<=wEnd&&e.end>=m);
+}
+function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+function chip(e){return '<span class="chip" style="background:'+catColor(e.catId)+'">'+esc(e.text)+'</span>';}
+
+/* ================= render ================= */
+function render(){
+  $('#planTitle').textContent=state.settings.title||'Season Planner';
+  document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.tab===tab));
+  ['calendar','weeks','settings'].forEach(t=>{$('#tab-'+t).hidden=(t!==tab);});
+  if(tab==='calendar')renderCalendar();
+  if(tab==='weeks')renderWeeks();
+  if(tab==='settings')renderSettings();
+}
+
+function renderCalendar(){
+  const el=$('#tab-calendar'); const ws=weeks(); const s=state.settings;
+  if(!ws.length){el.innerHTML='<p class="note" style="padding:20px">Set a valid date range in Set-up.</p>';return;}
+  let h='<div class="cal" style="grid-template-rows:auto repeat('+ws.length+',1fr)">';
+  h+='<div class="calhead">Week</div>';
+  DOW.forEach(d=>h+='<div class="calhead">'+d+'</div>');
+  ws.forEach((m,wi)=>{
+    h+='<div class="weeklabel" data-week="'+m+'"><span class="wdate">'+shortD(m)+'</span><div class="chips">'
+      +weekEntries(m).map(chip).join('')+'</div></div>';
+    for(let i=0;i<7;i++){
+      const d=addDays(parseD(m),i), ds=iso(d);
+      const inR=ds>=s.start&&ds<=s.end;
+      const lbl=(d.getDate()===1||(wi===0&&i===0))?d.getDate()+' '+MONTHS[d.getMonth()]:d.getDate();
+      const dots=inR?rangeEntriesOn(ds).map(e=>'<i style="background:'+catColor(e.catId)+'"></i>').join(''):'';
+      h+='<div class="day'+(inR?'':' out')+(ds===todayISO?' today':'')+'" data-date="'+ds+'"><b>'+lbl+'</b><div class="dots">'+dots+'</div></div>';
+    }
+  });
+  h+='</div>';
+  el.innerHTML=h;
+  el.querySelectorAll('.weeklabel').forEach(n=>n.onclick=()=>showWeek(n.dataset.week));
+  el.querySelectorAll('.day:not(.out)').forEach(n=>n.onclick=()=>showDay(n.dataset.date));
+}
+
+function renderWeeks(){
+  const el=$('#tab-weeks'); const ws=weeks();
+  let h='<div class="wp-wrap"><table class="wp"><tr><th></th>';
+  state.categories.forEach(c=>h+='<th class="cat" style="color:'+c.color+'">'+esc(c.name)+'</th>');
+  h+='</tr>';
+  ws.forEach(m=>{
+    h+='<tr><td class="wklabel" data-week="'+m+'">'+shortD(m)+'</td>';
+    state.categories.forEach(c=>{
+      const es=weekEntries(m,c.id);
+      h+='<td data-week="'+m+'" data-cat="'+c.id+'">'
+        +es.map(chip).join('')
+        +(es.length?'':'<span class="add">+</span>')+'</td>';
+    });
+    h+='</tr>';
+  });
+  h+='</table></div><p class="note">Tap a cell to add/edit whole-week activities. Tap a week date for the full week view.</p>';
+  el.innerHTML=h;
+  el.querySelectorAll('td[data-cat]').forEach(n=>n.onclick=()=>weekCatModal(n.dataset.week,n.dataset.cat));
+  el.querySelectorAll('.wklabel').forEach(n=>n.onclick=()=>showWeek(n.dataset.week));
+}
+
+function renderSettings(){
+  const el=$('#tab-settings'); const s=state.settings;
+  let h='<div class="box"><h2>Plan</h2>'
+    +'<label class="f">Title</label><input type="text" id="setTitle" value="'+esc(s.title)+'">'
+    +'<div class="mrow"><div><label class="f">Start date</label><input type="date" id="setStart" value="'+s.start+'"></div>'
+    +'<div><label class="f">End date</label><input type="date" id="setEnd" value="'+s.end+'"></div></div></div>';
+  h+='<div class="box"><h2>Categories</h2><div id="cats">';
+  state.categories.forEach(c=>{
+    h+='<div class="catrow" data-id="'+c.id+'"><input type="color" value="'+c.color+'">'
+      +'<input type="text" value="'+esc(c.name)+'">'
+      +'<button class="btn ghost sm delcat">✕</button></div>';
+  });
+  h+='</div><button class="btn ghost sm" id="addCat">+ Add category</button></div>';
+  h+='<div class="box"><h2>Automatic sync</h2>';
+  if(sync){
+    h+='<p class="note" style="margin-top:0">✅ Connected — changes push automatically and the latest plan is pulled whenever the app opens. Last change: '+new Date(state.updated).toLocaleString()+'</p>'
+      +'<div class="row"><button class="btn sm" id="syncNowBtn">Sync now</button>'
+      +'<button class="btn ghost sm" id="disconnectBtn">Disconnect</button></div>';
+  }else{
+    h+='<label class="f">GitHub token (classic, "gist" scope only)</label>'
+      +'<input type="password" id="tokenIn" placeholder="ghp_…" autocomplete="off">'
+      +'<div class="row" style="margin-top:10px"><button class="btn" id="connectBtn">Connect</button></div>'
+      +'<p class="note">One-time setup: on github.com go to Settings → Developer settings → Personal access tokens → <b>Tokens (classic)</b> → Generate new token, tick only <b>gist</b>. '
+      +'Paste the same token on both phones — the first phone creates the shared store, the second joins it.</p>';
+  }
+  h+='</div>';
+  h+='<div class="box"><h2>Backup file (manual)</h2><div class="row">'
+    +'<button class="btn ghost" id="exportBtn">Save plan to file</button>'
+    +'<button class="btn ghost" id="importBtn">Load plan from file</button>'
+    +'<input type="file" id="importFile" accept=".json,application/json" hidden></div>'
+    +'<p class="note">Optional backup: save the .json to iCloud Drive / Dropbox, or restore from one.</p></div>';
+  h+='<div class="box"><h2>Danger zone</h2><button class="btn red sm" id="resetBtn">Erase everything on this phone</button></div>';
+  el.innerHTML=h;
+
+  $('#setTitle').onchange=e=>{s.title=e.target.value; save();};
+  $('#setStart').onchange=e=>{if(e.target.value){s.start=e.target.value; if(s.end<s.start)s.end=s.start; save();}};
+  $('#setEnd').onchange=e=>{if(e.target.value){s.end=e.target.value; if(s.end<s.start)s.start=s.end; save();}};
+  el.querySelectorAll('.catrow').forEach(row=>{
+    const id=row.dataset.id, c=cat(id);
+    row.querySelector('input[type=color]').onchange=e=>{c.color=e.target.value; save();};
+    row.querySelector('input[type=text]').onchange=e=>{c.name=e.target.value||c.name; save();};
+    row.querySelector('.delcat').onclick=()=>{
+      const n=state.entries.filter(e=>e.catId===id).length;
+      if(confirm('Delete "'+c.name+'"'+(n?' and its '+n+' entries':'')+'?')){
+        state.categories=state.categories.filter(x=>x.id!==id);
+        state.entries=state.entries.filter(e=>e.catId!==id);
+        save();
+      }};
+  });
+  $('#addCat').onclick=()=>{
+    state.categories.push({id:uid(),name:'New category',color:PALETTE[state.categories.length%PALETTE.length]});
+    save();
+  };
+  $('#exportBtn').onclick=exportJSON;
+  $('#importBtn').onclick=()=>$('#importFile').click();
+  $('#importFile').onchange=importJSON;
+  if(sync){
+    $('#syncNowBtn').onclick=syncNow;
+    $('#disconnectBtn').onclick=()=>{
+      if(confirm('Turn off automatic sync on this phone? (The shared store and the other phone are unaffected.)')){
+        sync=null; saveSyncCfg(); setDot('off'); render();
+      }};
+  }else{
+    $('#connectBtn').onclick=async()=>{
+      const t=$('#tokenIn').value.trim(); if(!t){$('#tokenIn').focus();return;}
+      const b=$('#connectBtn'); b.disabled=true; b.textContent='Connecting…';
+      try{
+        const res=await connectSync(t);
+        alert(res==='created'
+          ?'Shared store created and your plan uploaded. Paste the same token on the other phone and tap Connect.'
+          :'Connected — the shared plan has been loaded onto this phone.');
+        render();
+      }catch(e){
+        alert('Could not connect: '+e.message);
+        b.disabled=false; b.textContent='Connect';
+      }};
+  }
+  $('#resetBtn').onclick=()=>{if(confirm('Erase all local data on this phone?')){state=defaultState(); save();}};
+}
+
+/* ================= modal ================= */
+function openModal(html){$('#modalCard').innerHTML='<button class="close" onclick="closeModal()">✕</button>'+html; $('#modal').hidden=false;}
+function closeModal(){$('#modal').hidden=true;}
+$('#modal').addEventListener('click',e=>{if(e.target.id==='modal')closeModal();});
+
+function entryRow(e){
+  const when=e.type==='week'?'all week':shortD(e.start)+(e.end!==e.start?' – '+shortD(e.end):'');
+  return '<div class="eitem" data-id="'+e.id+'" style="border-left:4px solid '+catColor(e.catId)+'">'
+    +'<span>'+esc(e.text)+'</span><span class="when">'+when+'</span></div>';
+}
+function wireEntryRows(){
+  $('#modalCard').querySelectorAll('.eitem').forEach(n=>n.onclick=()=>entryForm({id:n.dataset.id}));
+}
+function groupByCat(list,renderItem){
+  let h='';
+  state.categories.forEach(c=>{
+    const es=list.filter(e=>e.catId===c.id);
+    if(!es.length)return;
+    h+='<div class="egroup"><h4><i style="background:'+c.color+'"></i>'+esc(c.name)+'</h4>'+es.map(renderItem).join('')+'</div>';
+  });
+  return h||'<p class="empty">Nothing logged yet.</p>';
+}
+
+function showDay(ds){
+  const d=parseD(ds);
+  const list=entriesForDate(ds);
+  let h='<h3>'+DOW[(d.getDay()+6)%7]+' '+shortD(ds)+'</h3><div class="sub">Everything applying to this date</div>';
+  h+=groupByCat(list,entryRow);
+  h+='<div class="mactions"><button class="btn" id="addHere">+ Add for this date</button></div>';
+  openModal(h); wireEntryRows();
+  $('#addHere').onclick=()=>entryForm({type:'range',start:ds,end:ds});
+}
+
+function showWeek(m){
+  const wEnd=iso(addDays(parseD(m),6));
+  let h='<h3>Week '+weekLabel(m)+'</h3><div class="sub">Whole-week activities + day-specific items</div>';
+  h+=groupByCat(weekEntries(m),entryRow);
+  const ranged=rangeEntriesInWeek(m);
+  h+='<div class="dayblock"><h5>Specific dates this week</h5>';
+  let any=false;
+  for(let i=0;i<7;i++){
+    const ds=iso(addDays(parseD(m),i));
+    const list=ranged.filter(e=>e.start===ds||(i===0&&e.start<m&&e.end>=m));
+    if(list.length){any=true; h+='<h5 style="margin-top:6px">'+DOW[i]+' '+shortD(ds)+'</h5>'+list.map(entryRow).join('');}
+  }
+  if(!any)h+='<p class="empty">None.</p>';
+  h+='</div><div class="mactions"><button class="btn" id="addWk">+ Add for this week</button></div>';
+  openModal(h); wireEntryRows();
+  $('#addWk').onclick=()=>entryForm({type:'week',weekStart:m});
+}
+
+function weekCatModal(m,catId){
+  const c=cat(catId);
+  const es=weekEntries(m,catId);
+  let h='<h3 style="color:'+c.color+'">'+esc(c.name)+'</h3><div class="sub">Week '+weekLabel(m)+' — whole-week activities</div>';
+  h+=es.length?es.map(entryRow).join(''):'<p class="empty">Nothing yet.</p>';
+  h+='<div class="mactions"><button class="btn" id="addWC">+ Add</button></div>';
+  openModal(h); wireEntryRows();
+  $('#addWC').onclick=()=>entryForm({type:'week',weekStart:m,catId:catId});
+}
+
+/* ---- add / edit form ---- */
+function entryForm(opts){
+  opts=opts||{};
+  const editing=opts.id?state.entries.find(e=>e.id===opts.id):null;
+  const e=editing||{
+    type:opts.type||'week',
+    catId:opts.catId||(state.categories[0]&&state.categories[0].id),
+    weekStart:opts.weekStart||weeks()[0],
+    start:opts.start||state.settings.start,
+    end:opts.end||opts.start||state.settings.start,
+    text:''};
+  const ws=weeks();
+  let h='<h3>'+(editing?'Edit activity':'Add activity')+'</h3>';
+  h+='<label class="f">Activity</label><input type="text" id="fText" placeholder="e.g. Tennis camp" value="'+esc(e.text)+'">';
+  h+='<label class="f">Category</label><select id="fCat">'
+    +state.categories.map(c=>'<option value="'+c.id+'"'+(c.id===e.catId?' selected':'')+'>'+esc(c.name)+'</option>').join('')+'</select>';
+  h+='<label class="f">Applies to</label><div class="radio">'
+    +'<label><input type="radio" name="fType" value="week"'+(e.type==='week'?' checked':'')+'> Whole week</label>'
+    +'<label><input type="radio" name="fType" value="range"'+(e.type==='range'?' checked':'')+'> Specific dates</label></div>';
+  h+='<div id="fWeekWrap"><label class="f">Week</label><select id="fWeek">'
+    +ws.map(m=>'<option value="'+m+'"'+(m===e.weekStart?' selected':'')+'>'+weekLabel(m)+'</option>').join('')+'</select></div>';
+  h+='<div id="fRangeWrap" class="mrow"><div><label class="f">From</label><input type="date" id="fStart" value="'+(e.start||'')+'"></div>'
+    +'<div><label class="f">To</label><input type="date" id="fEnd" value="'+(e.end||'')+'"></div></div>';
+  h+='<div class="mactions">'+(editing?'<button class="btn red" id="fDel">Delete</button>':'')
+    +'<button class="btn" id="fSave">Save</button></div>';
+  openModal(h);
+  const sync=()=>{const t=document.querySelector('input[name=fType]:checked').value;
+    $('#fWeekWrap').style.display=t==='week'?'':'none';
+    $('#fRangeWrap').style.display=t==='range'?'':'none';};
+  document.querySelectorAll('input[name=fType]').forEach(r=>r.onchange=sync); sync();
+  $('#fSave').onclick=()=>{
+    const text=$('#fText').value.trim();
+    if(!text){$('#fText').focus();return;}
+    const type=document.querySelector('input[name=fType]:checked').value;
+    const rec={id:editing?editing.id:uid(), text:text, catId:$('#fCat').value, type:type};
+    if(type==='week'){rec.weekStart=$('#fWeek').value;}
+    else{
+      let a=$('#fStart').value, b=$('#fEnd').value||a;
+      if(!a){alert('Pick a start date');return;}
+      if(b<a){const t2=a;a=b;b=t2;}
+      rec.start=a; rec.end=b;
+    }
+    if(editing)Object.assign(editing,rec); else state.entries.push(rec);
+    closeModal(); save();
+  };
+  if(editing)$('#fDel').onclick=()=>{state.entries=state.entries.filter(x=>x.id!==editing.id); closeModal(); save();};
+  setTimeout(()=>$('#fText').focus(),50);
+}
+
+/* ================= import / export ================= */
+function exportJSON(){
+  persist();
+  const name=(state.settings.title.replace(/[^\w-]+/g,'-')||'plan')+'.json';
+  const blob=new Blob([JSON.stringify(state,null,2)],{type:'application/json'});
+  const file=new File([blob],name,{type:'application/json'});
+  if(navigator.canShare&&navigator.canShare({files:[file]})&&navigator.share){
+    navigator.share({files:[file]}).catch(()=>dl(blob,name));
+  }else dl(blob,name);
+}
+function dl(blob,name){
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name;
+  document.body.appendChild(a); a.click(); a.remove();
+}
+function importJSON(ev){
+  const f=ev.target.files[0]; if(!f)return;
+  const r=new FileReader();
+  r.onload=()=>{
+    try{
+      const s=JSON.parse(r.result);
+      if(!s||!s.settings||!Array.isArray(s.categories)||!Array.isArray(s.entries))throw 0;
+      if(confirm('Replace the plan on this phone with "'+(s.settings.title||'plan')+'" (saved '+new Date(s.updated||0).toLocaleString()+')?')){
+        state=s; save();
+      }
+    }catch(e){alert('That file is not a valid plan file.');}
+    ev.target.value='';
+  };
+  r.readAsText(f);
+}
+
+/* ================= nav ================= */
+document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{tab=b.dataset.tab; render();});
+$('#fab').onclick=()=>entryForm({});
+$('#syncDot').onclick=()=>{ if(sync)syncNow(); else {tab='settings'; render();} };
+window.addEventListener('resize',()=>{if(tab==='calendar')renderCalendar();});
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')pullRemote(false);});
+if('serviceWorker' in navigator){navigator.serviceWorker.register('sw.js').catch(()=>{});}
+render();
+setDot(sync?'busy':'off');
+pullRemote(false);
+</script>
+</body>
+</html>
