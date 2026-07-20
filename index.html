@@ -9,6 +9,8 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon.png">
 <title>Season Planner</title>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <style>
 :root{
   --bg:#f4f5f7; --card:#fff; --ink:#1e293b; --mut:#64748b; --line:#e2e8f0;
@@ -34,38 +36,55 @@ nav button.on{background:var(--acc); color:#fff;}
 main{height:calc(100dvh - 44px - env(safe-area-inset-top));}
 section{height:100%; overflow:auto; -webkit-overflow-scrolling:touch;}
 
-/* ---- Calendar (fit-to-screen grid) ---- */
+/* ---- Calendar (fit-to-screen grid, spanning bars) ---- */
 #tab-calendar{overflow:hidden; padding:4px;}
-.cal{display:grid; grid-template-columns:minmax(64px,1.1fr) repeat(7,1fr);
+.cal2{display:grid; grid-template-columns:minmax(52px,0.9fr) repeat(7,1fr);
   gap:2px; height:100%;}
 .calhead{font-size:10px; font-weight:700; color:var(--mut); text-align:center; align-self:end; padding-bottom:1px;}
 .weeklabel{background:var(--card); border:1px solid var(--line); border-radius:6px;
   padding:2px 3px; overflow:hidden; cursor:pointer; min-width:0;}
 .weeklabel .wdate{font-size:9px; font-weight:700; color:var(--mut);}
-.chips{display:flex; flex-direction:column; gap:1px; overflow:hidden;}
 .chip{font-size:8.5px; line-height:1.25; color:#fff; border-radius:3px; padding:0 3px;
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
-.day{background:var(--card); border:1px solid var(--line); border-radius:6px;
-  padding:2px 3px; overflow:hidden; cursor:pointer; min-width:0; display:flex; flex-direction:column;}
-.day b{font-size:9.5px; font-weight:600; white-space:nowrap;}
-.day.out{opacity:.28; pointer-events:none;}
-.day.today{border-color:var(--acc); box-shadow:inset 0 0 0 1px var(--acc);}
-.dots{display:flex; flex-wrap:wrap; gap:2px; margin-top:1px;}
-.dots i{width:6px; height:6px; border-radius:50%; flex:none;}
-.calhint{position:fixed; inset:auto 0 10px 0; text-align:center; font-size:11px; color:var(--mut); pointer-events:none;}
+.weekcell{grid-column:2 / span 7; background:var(--card); border:1px solid var(--line);
+  border-radius:6px; overflow:hidden; display:flex; flex-direction:column; min-width:0;}
+.wdays{display:grid; grid-template-columns:repeat(7,1fr); flex:none; border-bottom:1px solid var(--line);}
+.d2{font-size:9px; font-weight:600; padding:1px 3px; border-right:1px solid var(--line);
+  cursor:pointer; white-space:nowrap; overflow:hidden; min-width:0; color:var(--ink);}
+.d2:last-child{border-right:0;}
+.d2.out{opacity:.3; pointer-events:none;}
+.d2.today{color:var(--acc); box-shadow:inset 0 -2px 0 var(--acc);}
+.bars{display:grid; grid-template-columns:repeat(7,1fr); grid-auto-rows:min-content;
+  gap:1px; padding:1px; flex:1; overflow:hidden; align-content:start;}
+.bar{font-size:8.5px; line-height:1.35; color:#fff; border-radius:3px; padding:0 3px;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; cursor:pointer; min-width:0;}
 
-/* ---- Weeks planner ---- */
+/* ---- Summary (week x category grid) ---- */
 #tab-weeks{padding:8px;}
-.wp{border-collapse:separate; border-spacing:4px; width:100%;}
-.wp th{font-size:11px; color:var(--mut); text-align:left; padding:0 4px; white-space:nowrap;}
+.wp{border-collapse:separate; border-spacing:3px; width:100%; table-layout:fixed;}
+.wp th{font-size:11px; color:var(--mut); text-align:left; padding:0 4px; white-space:nowrap; overflow:hidden;}
 .wp th.cat{text-align:center;}
+.wp th.wkh{width:52px;}
 .wp td{background:var(--card); border:1px solid var(--line); border-radius:8px;
-  padding:4px 5px; vertical-align:top; min-width:84px; cursor:pointer;}
-.wp td .chip{font-size:10.5px; margin-bottom:2px; padding:1px 4px;}
-.wp .wklabel{background:transparent; border:0; font-size:11px; font-weight:700; color:var(--mut);
+  padding:4px 5px; vertical-align:top; cursor:pointer; overflow:hidden;}
+.wp td .chip{display:block; font-size:10.5px; margin-bottom:2px; padding:1px 4px;
+  white-space:normal; overflow-wrap:break-word;}
+.wp .wklabel{background:transparent; border:0; font-size:10.5px; font-weight:700; color:var(--mut);
   white-space:nowrap; padding:4px 2px; min-width:0; cursor:pointer;}
 .wp .add{color:#cbd5e1; font-size:14px; line-height:1;}
-.wp-wrap{overflow-x:auto;}
+.wp-wrap{overflow-x:hidden;}
+/* ---- PDF button + PDF render mode ---- */
+.pdfbtn{border:1px solid var(--acc) !important; color:var(--acc) !important; background:transparent !important;}
+.pdfmode{font-family:-apple-system,system-ui,sans-serif; color:#1e293b;}
+.pdfmode .calhead{font-size:14px;}
+.pdfmode .weeklabel .wdate{font-size:13px;}
+.pdfmode .d2{font-size:13px; padding:2px 5px;}
+.pdfmode .bar{font-size:14px; padding:2px 6px; border-radius:4px;}
+.pdfmode .bars{gap:2px; padding:2px;}
+.pdfmode .wp th{font-size:15px;}
+.pdfmode .wp .wklabel{font-size:14px;}
+.pdfmode .wp th.wkh{width:80px;}
+.pdfmode .wp td .chip{font-size:14px; padding:2px 6px;}
 
 /* ---- Settings ---- */
 #tab-settings{padding:14px; max-width:560px; margin:0 auto;}
@@ -150,9 +169,10 @@ input[type=text],input[type=date],select{width:100%; padding:9px 10px; border:1p
   <button id="syncDot" class="dot off" title="Sync off"></button>
   <nav>
     <button data-tab="calendar" class="on">Calendar</button>
-    <button data-tab="weeks">Weeks</button>
+    <button data-tab="weeks">Summary</button>
     <button data-tab="lists">Lists</button>
     <button data-tab="settings">Set-up</button>
+    <button id="pdfBtn" class="pdfbtn">PDF-it</button>
   </nav>
 </header>
 <main>
@@ -332,46 +352,69 @@ function render(){
   saveUI();
 }
 
-function renderCalendar(){
-  const el=$('#tab-calendar'); const ws=weeks(); const s=state.settings;
-  if(!ws.length){el.innerHTML='<p class="note" style="padding:20px">Set a valid date range in Set-up.</p>';return;}
-  let h='<div class="cal" style="grid-template-rows:auto repeat('+ws.length+',1fr)">';
+// Shared markup for the calendar (used by the Calendar tab and the PDF export).
+// Week-long and multi-day items render as labelled bars spanning the day columns they cover.
+function calHTML(){
+  const ws=weeks(); const s=state.settings; const DAY=86400000;
+  let h='<div class="cal2" style="grid-template-rows:auto repeat('+ws.length+',1fr)">';
   h+='<div class="calhead">Week</div>';
   DOW.forEach(d=>h+='<div class="calhead">'+d+'</div>');
   ws.forEach((m,wi)=>{
-    h+='<div class="weeklabel" data-week="'+m+'"><span class="wdate">'+shortD(m)+'</span><div class="chips">'
-      +weekEntries(m).map(chip).join('')+'</div></div>';
+    h+='<div class="weeklabel" data-week="'+m+'"><span class="wdate">'+shortD(m)+'</span></div>';
+    h+='<div class="weekcell"><div class="wdays">';
     for(let i=0;i<7;i++){
       const d=addDays(parseD(m),i), ds=iso(d);
       const inR=ds>=s.start&&ds<=s.end;
       const lbl=(d.getDate()===1||(wi===0&&i===0))?d.getDate()+' '+MONTHS[d.getMonth()]:d.getDate();
-      const dots=inR?rangeEntriesOn(ds).map(e=>'<i style="background:'+catColor(e.catId)+'"></i>').join(''):'';
-      h+='<div class="day'+(inR?'':' out')+(ds===todayISO?' today':'')+'" data-date="'+ds+'"><b>'+lbl+'</b><div class="dots">'+dots+'</div></div>';
+      h+='<div class="d2'+(inR?'':' out')+(ds===todayISO?' today':'')+'" data-date="'+ds+'">'+lbl+'</div>';
     }
+    h+='</div><div class="bars">';
+    weekEntries(m).forEach(e=>{
+      h+='<span class="bar" data-id="'+e.id+'" style="grid-column:1 / span 7;background:'+catColor(e.catId)+'">'+esc(e.text)+'</span>';
+    });
+    const wEnd=iso(addDays(parseD(m),6));
+    rangeEntriesInWeek(m).slice().sort((a,b)=>a.start<b.start?-1:1).forEach(e=>{
+      const a=e.start<m?m:e.start, b=e.end>wEnd?wEnd:e.end;   // clip to this week
+      const st=Math.round((parseD(a)-parseD(m))/DAY);
+      const sp=Math.round((parseD(b)-parseD(a))/DAY)+1;
+      h+='<span class="bar" data-id="'+e.id+'" style="grid-column:'+(st+1)+' / span '+sp+';background:'+catColor(e.catId)+'">'+esc(e.text)+'</span>';
+    });
+    h+='</div></div>';
   });
-  h+='</div>';
-  el.innerHTML=h;
+  return h+'</div>';
+}
+function renderCalendar(){
+  const el=$('#tab-calendar');
+  if(!weeks().length){el.innerHTML='<p class="note" style="padding:20px">Set a valid date range in Set-up.</p>';return;}
+  el.innerHTML=calHTML();
   el.querySelectorAll('.weeklabel').forEach(n=>n.onclick=()=>showWeekGrid(n.dataset.week));
-  el.querySelectorAll('.day:not(.out)').forEach(n=>n.onclick=()=>showDay(n.dataset.date));
+  el.querySelectorAll('.d2:not(.out)').forEach(n=>n.onclick=()=>showDay(n.dataset.date));
+  el.querySelectorAll('.bar').forEach(n=>n.onclick=()=>entryForm({id:n.dataset.id}));
 }
 
-function renderWeeks(){
-  const el=$('#tab-weeks'); const ws=weeks();
-  let h='<div class="wp-wrap"><table class="wp"><tr><th></th>';
+// Every entry touching a week (whole-week or any overlapping date range) — one chip each.
+function entriesInWeek(m){ return weekEntries(m).concat(rangeEntriesInWeek(m)); }
+function summaryHTML(){
+  const ws=weeks();
+  let h='<table class="wp"><tr><th class="wkh"></th>';
   state.categories.forEach(c=>h+='<th class="cat" style="color:'+c.color+'">'+esc(c.name)+'</th>');
   h+='</tr>';
   ws.forEach(m=>{
     h+='<tr><td class="wklabel" data-week="'+m+'">'+shortD(m)+'</td>';
     state.categories.forEach(c=>{
-      const es=weekEntries(m,c.id);
+      const es=entriesInWeek(m).filter(e=>e.catId===c.id);
       h+='<td data-week="'+m+'" data-cat="'+c.id+'">'
         +es.map(chip).join('')
         +(es.length?'':'<span class="add">+</span>')+'</td>';
     });
     h+='</tr>';
   });
-  h+='</table></div><p class="note">Tap a cell to add/edit whole-week activities. Tap a week date for the full week view.</p>';
-  el.innerHTML=h;
+  return h+'</table>';
+}
+function renderWeeks(){
+  const el=$('#tab-weeks');
+  el.innerHTML='<div class="wp-wrap">'+summaryHTML()+'</div>'
+    +'<p class="note">One rectangle per activity that touches that week, whatever its length. Tap a cell to view or add; tap a week date for the week grid.</p>';
   el.querySelectorAll('td[data-cat]').forEach(n=>n.onclick=()=>weekCatModal(n.dataset.week,n.dataset.cat));
   el.querySelectorAll('.wklabel').forEach(n=>n.onclick=()=>showWeekGrid(n.dataset.week));
 }
@@ -644,8 +687,8 @@ function planMenu(){
 
 function weekCatModal(m,catId){
   const c=cat(catId);
-  const es=weekEntries(m,catId);
-  let h='<h3 style="color:'+c.color+'">'+esc(c.name)+'</h3><div class="sub">Week '+weekLabel(m)+' — whole-week activities</div>';
+  const es=entriesInWeek(m).filter(e=>e.catId===catId);
+  let h='<h3 style="color:'+c.color+'">'+esc(c.name)+'</h3><div class="sub">Week '+weekLabel(m)+' — everything touching this week</div>';
   h+=es.length?es.map(entryRow).join(''):'<p class="empty">Nothing yet.</p>';
   h+='<div class="mactions"><button class="btn" id="addWC">+ Add</button></div>';
   openModal(h); wireEntryRows();
@@ -731,8 +774,73 @@ function importJSON(ev){
   r.readAsText(f);
 }
 
+/* ================= PDF export ================= */
+async function makePDF(){
+  if(!(window.html2canvas&&window.jspdf&&window.jspdf.jsPDF)){
+    alert('PDF engine not loaded yet — the first use needs an internet connection. Try again in a few seconds.');
+    return;
+  }
+  const btn=$('#pdfBtn'); btn.disabled=true; btn.textContent='…';
+  const host=document.createElement('div');
+  try{
+    const ws=weeks();
+    // Off-screen render surface at a fixed "design" size
+    host.style.cssText='position:fixed;left:-12000px;top:0;background:#fff;z-index:-1;';
+    document.body.appendChild(host);
+    // Page 1: Calendar
+    const calW=1500, calH=Math.min(1030,Math.max(560,ws.length*120+80)); // cap near A4 landscape aspect
+    const p1=document.createElement('div');
+    p1.className='pdfmode';
+    p1.style.cssText='width:'+calW+'px;height:'+calH+'px;padding:16px;background:#fff;box-sizing:border-box;';
+    p1.innerHTML='<h2 style="margin:0 0 10px;font-size:26px;color:#1e293b">'+esc(state.settings.title)+'</h2>'
+      +'<div style="height:'+(calH-80)+'px">'+calHTML()+'</div>';
+    host.appendChild(p1);
+    // Page 2: Summary + Lists
+    const p2=document.createElement('div');
+    p2.className='pdfmode';
+    p2.style.cssText='width:'+calW+'px;padding:16px;background:#fff;box-sizing:border-box;';
+    let lh='';
+    if(state.lists.length){
+      lh='<div style="display:flex;flex-wrap:wrap;gap:10px 30px;margin-top:18px;font-size:15px">';
+      state.lists.forEach(l=>{
+        lh+='<div style="min-width:220px"><b>'+esc(l.name)+'</b>'
+          +'<ul style="margin:5px 0 0 18px;padding:0">'
+          +l.items.map(it=>'<li style="margin-bottom:2px'+(it.done?';text-decoration:line-through;color:#64748b':'')+'">'+esc(it.text)+'</li>').join('')
+          +'</ul></div>';
+      });
+      lh+='</div>';
+    }
+    p2.innerHTML='<h2 style="margin:0 0 10px;font-size:26px;color:#1e293b">'+esc(state.settings.title)+' — Summary</h2>'
+      +summaryHTML()+lh;
+    host.appendChild(p2);
+    // Rasterise and lay out on A4 landscape with 1cm margins, centred, top-aligned
+    const pdf=new window.jspdf.jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
+    const PAGE_W=297, PAGE_H=210, M=10, availW=PAGE_W-2*M, availH=PAGE_H-2*M;
+    async function place(node,first){
+      const canvas=await html2canvas(node,{scale:2,backgroundColor:'#ffffff'});
+      if(!first)pdf.addPage('a4','landscape');
+      let w=availW, h=w*canvas.height/canvas.width;
+      if(h>availH){h=availH; w=h*canvas.width/canvas.height;}
+      pdf.addImage(canvas.toDataURL('image/png'),'PNG',(PAGE_W-w)/2,M,w,h);
+    }
+    await place(p1,true);
+    await place(p2,false);
+    const name=(state.settings.title.replace(/[^\w-]+/g,'-')||'plan')+'.pdf';
+    const blob=pdf.output('blob');
+    const file=new File([blob],name,{type:'application/pdf'});
+    if(navigator.canShare&&navigator.canShare({files:[file]})&&navigator.share){
+      await navigator.share({files:[file]}).catch(()=>dl(blob,name));
+    }else dl(blob,name);
+  }catch(err){
+    alert('Could not create PDF: '+(err&&err.message||err));
+  }
+  host.remove();
+  btn.disabled=false; btn.textContent='PDF-it';
+}
+
 /* ================= nav ================= */
-document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{tab=b.dataset.tab; render();});
+document.querySelectorAll('nav button[data-tab]').forEach(b=>b.onclick=()=>{tab=b.dataset.tab; render();});
+$('#pdfBtn').onclick=makePDF;
 $('#fab').onclick=()=>entryForm({});
 $('#planTitle').onclick=planMenu;
 $('#syncDot').onclick=()=>{ if(sync)syncNow(); else {tab='settings'; render();} };
