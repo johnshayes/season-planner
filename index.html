@@ -47,7 +47,8 @@ section{height:100%; overflow:auto; -webkit-overflow-scrolling:touch;}
 .chip{font-size:11px; line-height:1.35; color:#fff; border-radius:3px; padding:1px 5px;
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
 .weekcell{grid-column:2 / span 7; background:var(--card); border:1px solid var(--line);
-  border-radius:6px; overflow:hidden; display:flex; flex-direction:column; min-width:0;}
+  border-radius:6px; overflow:hidden; display:flex; flex-direction:column; min-width:0;
+  touch-action:manipulation; cursor:pointer;}
 .wdays{display:grid; grid-template-columns:repeat(7,1fr); flex:none; border-bottom:1px solid var(--line);}
 .d2{font-size:10px; font-weight:600; padding:1px 3px; border-right:1px solid var(--line);
   cursor:pointer; white-space:nowrap; overflow:hidden; min-width:0; color:var(--ink); touch-action:manipulation;}
@@ -133,6 +134,9 @@ input[type=text],input[type=date],select{width:100%; padding:9px 10px; border:1p
 .li .delitem{border:0; background:none; color:#cbd5e1; font-size:14px; cursor:pointer;}
 .addrow{display:flex; gap:8px; margin-top:10px;}
 .addrow input{flex:1;}
+.docrow{display:flex; gap:8px; align-items:center;}
+.docrow .dname{flex:1; min-width:0;}
+.docmeta{font-size:11px; color:var(--mut); margin:2px 0 10px 2px;}
 
 /* ---- FAB ---- */
 #fab{position:fixed; right:16px; bottom:calc(16px + env(safe-area-inset-bottom)); width:52px; height:52px;
@@ -204,7 +208,7 @@ function newPlan(title,start,end){
       {id:uid(),name:'Main',color:PALETTE[0]},
       {id:uid(),name:'Sport',color:PALETTE[1]},
       {id:uid(),name:'Learning',color:PALETTE[2]}],
-    entries:[], lists:[]};
+    entries:[], lists:[], docs:[]};
 }
 function defaultDoc(){
   return {version:2, updated:new Date().toISOString(),
@@ -215,12 +219,12 @@ function defaultDoc(){
 function migrate(s){
   if(!s)return null;
   if(s.version===2&&Array.isArray(s.plans)&&s.plans.length){
-    s.plans.forEach(p=>{if(!Array.isArray(p.lists))p.lists=[];});
+    s.plans.forEach(p=>{if(!Array.isArray(p.lists))p.lists=[]; if(!Array.isArray(p.docs))p.docs=[];});
     return s;
   }
   if(s.settings&&Array.isArray(s.categories)&&Array.isArray(s.entries)){
     return {version:2, updated:s.updated||new Date().toISOString(),
-      plans:[{id:uid(), settings:s.settings, categories:s.categories, entries:s.entries, lists:[]}]};
+      plans:[{id:uid(), settings:s.settings, categories:s.categories, entries:s.entries, lists:[], docs:[]}]};
   }
   return null;
 }
@@ -341,10 +345,10 @@ function soft(hex){
 // single vs double tap: double-tap = quick add with context pre-filled
 function tapper(el,single,dbl){
   let last=0, timer=null;
-  el.addEventListener('click',()=>{
+  el.addEventListener('click',ev=>{
     const now=Date.now();
-    if(now-last<350){ clearTimeout(timer); last=0; dbl(); }
-    else { last=now; timer=setTimeout(single,360); }
+    if(now-last<350){ clearTimeout(timer); last=0; dbl(ev); }
+    else { last=now; timer=setTimeout(()=>single(ev),360); }
   });
 }
 function weekEntries(m,catId){return state.entries.filter(e=>e.type==='week'&&e.weekStart===m&&(!catId||e.catId===catId));}
@@ -382,7 +386,7 @@ function calHTML(){
   DOW.forEach(d=>h+='<div class="calhead">'+d+'</div>');
   ws.forEach((m,wi)=>{
     h+='<div class="weeklabel" data-week="'+m+'"><span class="wdate">'+shortD(m)+'</span></div>';
-    h+='<div class="weekcell"><div class="wdays">';
+    h+='<div class="weekcell" data-week="'+m+'"><div class="wdays">';
     for(let i=0;i<7;i++){
       const d=addDays(parseD(m),i), ds=iso(d);
       const inR=ds>=s.start&&ds<=s.end;
@@ -411,10 +415,30 @@ function renderCalendar(){
   el.querySelectorAll('.weeklabel').forEach(n=>tapper(n,
     ()=>showWeekGrid(n.dataset.week),
     ()=>entryForm({type:'week',weekStart:n.dataset.week})));
-  el.querySelectorAll('.d2:not(.out)').forEach(n=>tapper(n,
-    ()=>showDay(n.dataset.date),
-    ()=>entryForm({type:'range',start:n.dataset.date,end:n.dataset.date})));
-  el.querySelectorAll('.bar').forEach(n=>n.onclick=()=>entryForm({id:n.dataset.id}));
+  // Whole week-cell is tap-aware: the day column under the tap decides the date,
+  // so a double-tap ANYWHERE in a day's cell (date strip, bars area, or a bar) quick-adds for that date.
+  el.querySelectorAll('.weekcell').forEach(cell=>{
+    const m=cell.dataset.week;
+    const dayAt=ev=>{
+      const r=cell.getBoundingClientRect();
+      const i=Math.max(0,Math.min(6,Math.floor((ev.clientX-r.left)/(r.width/7))));
+      return iso(addDays(parseD(m),i));
+    };
+    const ok=ds=>ds>=state.settings.start&&ds<=state.settings.end;
+    tapper(cell,
+      ev=>{ // single tap: bar = edit that item; anywhere else = open that day
+        const bar=ev.target.closest('.bar');
+        if(bar){entryForm({id:bar.dataset.id});return;}
+        const d2=ev.target.closest('.d2');
+        const ds=d2?d2.dataset.date:dayAt(ev);
+        if(ok(ds))showDay(ds);
+      },
+      ev=>{ // double tap: add for the date under the tap
+        const d2=ev.target.closest('.d2');
+        const ds=d2?d2.dataset.date:dayAt(ev);
+        if(ok(ds))entryForm({type:'range',start:ds,end:ds});
+      });
+  });
 }
 
 // Every entry touching a week (whole-week or any overlapping date range) — one chip each.
@@ -630,7 +654,31 @@ function renderLists(){
     h+='<div class="addrow"><input type="text" class="newitem" placeholder="Add item…"><button class="btn sm additem">Add</button></div></div>';
   });
   h+='<button class="btn" id="addList">+ Add list</button>';
+  // travel documents
+  ensureDocs();
+  h+='<div class="box" style="margin-top:14px"><h2>Travel documents</h2>';
+  state.docs.forEach(d=>{
+    h+='<div class="docrow" data-id="'+d.id+'">'
+      +'<input type="text" class="dname" value="'+esc(d.name)+'" placeholder="Document name">'
+      +'<button class="btn ghost sm dview">View</button>'
+      +'<button class="btn ghost sm ddel">✕</button></div>'
+      +'<div class="docmeta">'+(d.size/1048576).toFixed(2)+' MB · added '+shortD(d.added)+'</div>';
+  });
+  if(!state.docs.length)h+='<p class="empty">No documents yet — e.g. tickets, boarding passes, booking confirmations.</p>';
+  h+='<div class="row" style="margin-top:10px"><button class="btn sm" id="docAdd">+ Upload PDF</button>'
+    +'<input type="file" id="docFile" accept="application/pdf,.pdf" hidden></div>'
+    +'<p class="note">Stored privately in your shared store (max 6 MB each) — both phones can open them. Edit the name field to rename.</p></div>';
   el.innerHTML=h;
+  $('#docAdd').onclick=()=>$('#docFile').click();
+  $('#docFile').onchange=ev=>{const f=ev.target.files[0]; ev.target.value=''; if(f)uploadDoc(f);};
+  el.querySelectorAll('.docrow').forEach(row=>{
+    const d=state.docs.find(x=>x.id===row.dataset.id);
+    row.querySelector('.dname').onchange=e=>{d.name=e.target.value||d.name; save();};
+    row.querySelector('.dview').onclick=()=>viewDoc(d.id);
+    row.querySelector('.ddel').onclick=()=>{
+      if(confirm('Delete document "'+d.name+'" for both of you?'))deleteDoc(d.id);
+    };
+  });
   el.querySelectorAll('.box.list').forEach(box=>{
     const l=state.lists.find(x=>x.id===box.dataset.id);
     box.querySelector('.lname').onchange=e=>{l.name=e.target.value||l.name; save();};
@@ -803,6 +851,73 @@ function importJSON(ev){
     ev.target.value='';
   };
   r.readAsText(f);
+}
+
+/* ================= travel documents (stored as private gists) ================= */
+function ensureDocs(){ if(!Array.isArray(state.docs))state.docs=[]; }
+function readB64(file){
+  return new Promise((res,rej)=>{
+    const r=new FileReader();
+    r.onload=()=>res(String(r.result).split(',')[1]);
+    r.onerror=rej;
+    r.readAsDataURL(file);
+  });
+}
+async function uploadDoc(file){
+  if(!sync){alert('Connect automatic sync first (Set-up tab) — documents live in your shared store so both phones can open them.');return;}
+  if(file.type!=='application/pdf'&&!/\.pdf$/i.test(file.name)){alert('PDFs only.');return;}
+  if(file.size>6*1024*1024){alert('Please keep documents under 6 MB (this one is '+(file.size/1048576).toFixed(1)+' MB).');return;}
+  const btn=$('#docAdd'); if(btn){btn.disabled=true; btn.textContent='Uploading…';}
+  try{
+    const b64=await readB64(file);
+    const r=await fetch('https://api.github.com/gists',{method:'POST',headers:ghHeaders(),
+      body:JSON.stringify({description:'Season Planner document: '+file.name,public:false,
+        files:{'document.pdf.b64':{content:b64}}})});
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    const g=await r.json();
+    ensureDocs();
+    state.docs.push({id:uid(), name:file.name.replace(/\.pdf$/i,''), size:file.size,
+      gistId:g.id, added:iso(new Date())});
+    save();
+  }catch(e){
+    alert('Upload failed: '+(e&&e.message||e));
+    if(btn){btn.disabled=false; btn.textContent='+ Upload PDF';}
+  }
+}
+async function fetchDocBlob(d){
+  const r=await fetch('https://api.github.com/gists/'+d.gistId,{headers:ghHeaders()});
+  if(!r.ok)throw new Error('HTTP '+r.status);
+  const g=await r.json();
+  const f=g.files&&Object.values(g.files)[0];
+  if(!f)throw new Error('empty store');
+  let b64=f.content;
+  if(f.truncated){ b64=await (await fetch(f.raw_url)).text(); }
+  const bin=atob(b64.replace(/\s/g,''));
+  const arr=new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++)arr[i]=bin.charCodeAt(i);
+  return new Blob([arr],{type:'application/pdf'});
+}
+async function viewDoc(id){
+  if(!sync){alert('Connect automatic sync first (Set-up tab).');return;}
+  const d=state.docs.find(x=>x.id===id); if(!d)return;
+  const row=document.querySelector('.docrow[data-id="'+id+'"] .dview');
+  if(row){row.disabled=true; row.textContent='…';}
+  try{
+    const blob=await fetchDocBlob(d);
+    const name=(d.name||'document')+'.pdf';
+    const file=new File([blob],name,{type:'application/pdf'});
+    const w=window.open(URL.createObjectURL(blob),'_blank');
+    if(!w&&navigator.canShare&&navigator.canShare({files:[file]})&&navigator.share){
+      await navigator.share({files:[file]}); // iOS standalone: opens the share sheet (Quick Look, Files, print…)
+    }else if(!w){ dl(blob,name); }
+  }catch(e){alert('Could not open document — check your connection.');}
+  if(row){row.disabled=false; row.textContent='View';}
+}
+function deleteDoc(id){
+  const d=state.docs.find(x=>x.id===id); if(!d)return;
+  state.docs=state.docs.filter(x=>x.id!==id);
+  save();
+  if(sync)fetch('https://api.github.com/gists/'+d.gistId,{method:'DELETE',headers:ghHeaders()}).catch(()=>{});
 }
 
 /* ================= PDF export ================= */
