@@ -11,6 +11,7 @@
 <title>Season Planner</title>
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
 <style>
 :root{
   --bg:#f4f5f7; --card:#fff; --ink:#1e293b; --mut:#64748b; --line:#c9d3df;
@@ -158,6 +159,10 @@ input[type=text],input[type=date],select{width:100%; padding:9px 10px; border:1p
 .eitem{display:flex; justify-content:space-between; gap:8px; padding:8px 10px; border:1px solid var(--line);
   border-radius:8px; margin-bottom:5px; font-size:14px; cursor:pointer; background:#fafbfc;}
 .eitem .when{font-size:11px; color:var(--mut); white-space:nowrap; align-self:center;}
+.eitem .handle{cursor:grab; touch-action:none; color:var(--mut); font-size:17px;
+  padding:0 5px; flex:none; align-self:center; user-select:none; -webkit-user-select:none;}
+.eitem .etext{flex:1; min-width:0; align-self:center;}
+.eitem.dragging{opacity:.55;}
 .dayblock{border-top:1px solid var(--line); padding-top:8px; margin-top:8px;}
 .dayblock h5{margin:0 0 5px; font-size:12px; color:var(--mut);}
 .radio{display:flex; gap:14px; margin:6px 0;}
@@ -394,15 +399,26 @@ function calHTML(){
       h+='<div class="d2'+(inR?'':' out')+(ds===todayISO?' today':'')+'" data-date="'+ds+'">'+lbl+'</div>';
     }
     h+='</div><div class="bars">';
+    // Explicit row placement: each bar takes the first free row across its own columns,
+    // so single-day bars on adjacent days all start at the top.
+    const occ=[];
+    const rowFor=(st,sp)=>{
+      for(let r=0;;r++){
+        if(!occ[r])occ[r]=[0,0,0,0,0,0,0];
+        let free=true;
+        for(let c=st;c<st+sp;c++)if(occ[r][c]){free=false;break;}
+        if(free){for(let c=st;c<st+sp;c++)occ[r][c]=1; return r+1;}
+      }
+    };
     weekEntries(m).forEach(e=>{
-      h+='<span class="bar" data-id="'+e.id+'" style="grid-column:1 / span 7;background:'+soft(catColor(e.catId))+'">'+esc(e.text)+'</span>';
+      h+='<span class="bar" data-id="'+e.id+'" style="grid-row:'+rowFor(0,7)+';grid-column:1 / span 7;background:'+soft(catColor(e.catId))+'">'+esc(e.text)+'</span>';
     });
     const wEnd=iso(addDays(parseD(m),6));
     rangeEntriesInWeek(m).slice().sort((a,b)=>a.start<b.start?-1:1).forEach(e=>{
       const a=e.start<m?m:e.start, b=e.end>wEnd?wEnd:e.end;   // clip to this week
       const st=Math.round((parseD(a)-parseD(m))/DAY);
       const sp=Math.round((parseD(b)-parseD(a))/DAY)+1;
-      h+='<span class="bar" data-id="'+e.id+'" style="grid-column:'+(st+1)+' / span '+sp+';background:'+soft(catColor(e.catId))+'">'+esc(e.text)+'</span>';
+      h+='<span class="bar" data-id="'+e.id+'" style="grid-row:'+rowFor(st,sp)+';grid-column:'+(st+1)+' / span '+sp+';background:'+soft(catColor(e.catId))+'">'+esc(e.text)+'</span>';
     });
     h+='</div></div>';
   });
@@ -591,14 +607,58 @@ function groupByCat(list,renderItem){
 
 function showDay(ds){
   const d=parseD(ds);
-  const list=entriesForDate(ds);
-  let h='<h3>'+DOW[(d.getDay()+6)%7]+' '+shortD(ds)+'</h3><div class="sub">Everything applying to this date</div>';
-  h+=groupByCat(list,entryRow);
+  const byOrd=(a,b)=>((a.ord==null?1e9:a.ord)-(b.ord==null?1e9:b.ord));
+  const list=entriesForDate(ds).slice().sort(byOrd);
+  let h='<h3>'+DOW[(d.getDay()+6)%7]+' '+shortD(ds)+'</h3>'
+    +'<div class="sub">Everything applying to this date — drag ≡ to reorder, tap to edit</div>';
+  h+='<div id="dayList">'+(list.length?list.map(dayRow).join(''):'<p class="empty">Nothing logged yet.</p>')+'</div>';
   h+='<div class="mactions"><button class="btn ghost" id="fromList">+ From list</button>'
     +'<button class="btn" id="addHere">+ Add for this date</button></div>';
   openModal(h); wireEntryRows();
+  enableDayDrag($('#dayList'));
   $('#fromList').onclick=()=>listPicker({mode:'day',date:ds});
   $('#addHere').onclick=()=>entryForm({type:'range',start:ds,end:ds});
+}
+function dayRow(e){
+  const c=cat(e.catId);
+  const when=e.type==='week'?'all week':shortD(e.start)+(e.end!==e.start?' – '+shortD(e.end):'');
+  return '<div class="eitem" data-id="'+e.id+'" style="border-left:4px solid '+catColor(e.catId)+'">'
+    +'<span class="handle">≡</span>'
+    +'<span class="etext">'+esc(e.text)+(c?' <small style="color:var(--mut)">· '+esc(c.name)+'</small>':'')+'</span>'
+    +'<span class="when">'+when+'</span></div>';
+}
+function enableDayDrag(container){
+  if(!container)return;
+  container.querySelectorAll('.handle').forEach(hd=>{
+    hd.addEventListener('click',ev=>ev.stopPropagation());
+    hd.addEventListener('pointerdown',ev=>{
+      ev.preventDefault(); ev.stopPropagation();
+      const row=hd.closest('.eitem');
+      row.classList.add('dragging');
+      hd.setPointerCapture(ev.pointerId);
+      const move=e2=>{
+        const others=Array.prototype.slice.call(container.querySelectorAll('.eitem:not(.dragging)'));
+        let before=null;
+        for(const r of others){
+          const rc=r.getBoundingClientRect();
+          if(e2.clientY<rc.top+rc.height/2){before=r;break;}
+        }
+        if(before)container.insertBefore(row,before); else container.appendChild(row);
+      };
+      const up=()=>{
+        hd.removeEventListener('pointermove',move);
+        hd.removeEventListener('pointerup',up);
+        row.classList.remove('dragging');
+        Array.prototype.slice.call(container.querySelectorAll('.eitem')).forEach((r,i)=>{
+          const e=state.entries.find(x=>x.id===r.dataset.id);
+          if(e)e.ord=i;
+        });
+        save();
+      };
+      hd.addEventListener('pointermove',move);
+      hd.addEventListener('pointerup',up);
+    });
+  });
 }
 
 /* ---- full-screen week grid ---- */
@@ -866,7 +926,7 @@ function readB64(file){
 async function uploadDoc(file){
   if(!sync){alert('Connect automatic sync first (Set-up tab) — documents live in your shared store so both phones can open them.');return;}
   if(file.type!=='application/pdf'&&!/\.pdf$/i.test(file.name)){alert('PDFs only.');return;}
-  if(file.size>6*1024*1024){alert('Please keep documents under 6 MB (this one is '+(file.size/1048576).toFixed(1)+' MB).');return;}
+  if(file.size>10*1024*1024){alert('Please keep documents under 10 MB (this one is '+(file.size/1048576).toFixed(1)+' MB).');return;}
   const btn=$('#docAdd'); if(btn){btn.disabled=true; btn.textContent='Uploading…';}
   try{
     const b64=await readB64(file);
@@ -980,12 +1040,46 @@ async function makePDF(){
     }
     await place(p1,true);
     await place(p2,false);
+    // Append every page of each uploaded travel document (full app extract),
+    // stamping the document's name on its first page.
+    let outBlob=pdf.output('blob');
+    ensureDocs();
+    const skipped=[];
+    if(state.docs.length){
+      if(window.PDFLib&&sync){
+        try{
+          const PL=window.PDFLib;
+          const base=await PL.PDFDocument.load(pdf.output('arraybuffer'));
+          const font=await base.embedFont(PL.StandardFonts.HelveticaBold);
+          for(const dc of state.docs){
+            try{
+              const blob=await fetchDocBlob(dc);
+              const src=await PL.PDFDocument.load(await blob.arrayBuffer(),{ignoreEncryption:true});
+              const pages=await base.copyPages(src,src.getPageIndices());
+              pages.forEach((pg,i)=>{
+                base.addPage(pg);
+                if(i===0){
+                  const sz=pg.getSize();
+                  const title=String(dc.name||'Document').replace(/[^\x20-\x7E]/g,'?');
+                  pg.drawRectangle({x:0,y:sz.height-24,width:sz.width,height:24,
+                    color:PL.rgb(0.93,0.95,0.97),opacity:0.92});
+                  pg.drawText(title,{x:12,y:sz.height-17,size:12,font:font,color:PL.rgb(0.12,0.17,0.23)});
+                }
+              });
+            }catch(e){skipped.push(dc.name);}
+          }
+          outBlob=new Blob([await base.save()],{type:'application/pdf'});
+        }catch(e){skipped.push('all documents');}
+      }else{
+        skipped.push(sync?'all documents (PDF engine unavailable)':'all documents (sync not connected)');
+      }
+    }
+    if(skipped.length)alert('Note — not included in the PDF: '+skipped.join(', ')+'. Check your connection and try again if needed.');
     const name=(state.settings.title.replace(/[^\w-]+/g,'-')||'plan')+'.pdf';
-    const blob=pdf.output('blob');
-    const file=new File([blob],name,{type:'application/pdf'});
+    const file=new File([outBlob],name,{type:'application/pdf'});
     if(navigator.canShare&&navigator.canShare({files:[file]})&&navigator.share){
-      await navigator.share({files:[file]}).catch(()=>dl(blob,name));
-    }else dl(blob,name);
+      await navigator.share({files:[file]}).catch(()=>dl(outBlob,name));
+    }else dl(outBlob,name);
   }catch(err){
     alert('Could not create PDF: '+(err&&err.message||err));
   }
